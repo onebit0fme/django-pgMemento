@@ -26,7 +26,7 @@ SELECT pgmemento.drop_schema_log_trigger('public', string_to_array('%s',','));
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('brain_common', '0015_pg_memento'),
+        ('pg_memento', '0001_initial'),
     ]
 
     operations = [
