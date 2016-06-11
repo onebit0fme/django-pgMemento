@@ -1,0 +1,3 @@
+[submodule "pg_memento/scripts"]
+	path = pg_memento/scripts
+	url = https://github.com/pgMemento/pgMemento.git
