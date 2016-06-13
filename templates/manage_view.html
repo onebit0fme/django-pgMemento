@@ -1,0 +1,48 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls admin_static admin_modify %}
+{#{% load humanize tz %}#}
+
+{% block breadcrumbs %}
+    <div class="breadcrumbs">
+        <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+        &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ app_label|capfirst|escape }}</a>
+        &rsaquo; {% if has_change_permission %}<a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>{% else %}{{ opts.verbose_name_plural|capfirst }}{% endif %}
+        &rsaquo; {% trans 'Manage' %} {{ original|truncatewords:"18" }}
+    </div>
+{% endblock %}
+
+{% block content %}
+    {#{% timezone "America/Los_Angeles" %}#}
+    <div>
+        {#  <form action="{{ form_url }}" method="post">#}
+        {#    {% csrf_token %}#}
+        {#    <!-- do cool form things -->#}
+        {#  </form>#}
+
+        <table>
+            <thead>
+            <tr>
+                <th>Id</th>
+                <th>Transaction Id</th>
+                <th>Table</th>
+                <th>Event</th>
+                <th>Changes</th>
+                <th>Undo</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for version in history %}
+                <tr>
+                    <td>{{ version.id }}</td>
+                    <td>{{ version.event.transaction_id }}</td>
+                    <td>{{ version.event.table_relid }}</td>
+                    <td>{{ version.event.table_operation }}</td>
+                    <td>{{ version.changes }}</td>
+                    <td><a href="#" class="inlinechangelink">Undo</a> </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {#{% endtimezone %}#}
+{% endblock %}

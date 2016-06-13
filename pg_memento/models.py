@@ -27,7 +27,7 @@ class AuditTableLog(ReadOnlyModel):
         app_label = 'pg_memento'
 
     def __str__(self):
-        return str(self.relid)
+        return str(self.table_name)
 
 
 class AuditColumnLog(ReadOnlyModel):
@@ -56,12 +56,18 @@ class AuditColumnLog(ReadOnlyModel):
         return str(self.id)
 
 
-class TransactionLog(ReadOnlyModel):
+class SerialField(models.BigIntegerField):
 
+    def db_type(self, connection):
+        return 'serial'
+
+
+class TransactionLog(ReadOnlyModel):
+    id = SerialField(primary_key=True, editable=False)
     txid = models.IntegerField()
     stmt_date = models.DateTimeField()
-    user_name = models.TextField()
-    client_name = models.TextField()
+    user_name = models.TextField(null=True)
+    client_name = models.TextField(null=True)
 
     class Meta:
         managed = False
@@ -74,6 +80,7 @@ class TransactionLog(ReadOnlyModel):
 
 class TableEventLog(ReadOnlyModel):
 
+    # TODO: transaction ForeignKey does not work in Django, possibly due to field type inconsistency
     transaction = models.ForeignKey(TransactionLog, db_column='transaction_id', to_field='id')
     op_id = models.SmallIntegerField()
     table_operation = models.CharField(max_length=8, null=True)
@@ -102,3 +109,13 @@ class RowLog(ReadOnlyModel):
 
     def __str__(self):
         return str(self.id)
+
+
+def add_audit_id(sender, **kwargs):
+    # if sender.__name__ == 'User':
+    field = models.BigIntegerField(null=True, editable=False)
+    field.contribute_to_class(sender, 'audit_id')
+
+# from django.db.models.signals import class_prepared
+#
+# class_prepared.connect(add_audit_id)
