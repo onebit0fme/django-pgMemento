@@ -279,6 +279,11 @@ class VersionModelAdmin(ModelAdmin):
     change_form_template = 'change_form.html'
     manage_view_template = 'manage_view.html'
 
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = super(VersionModelAdmin, self).get_readonly_fields(request, obj)
+        self.contribute_audit_id(self.model)
+        return readonly_fields + ('audit_id', )
+
     def get_urls(self):
         from django.conf.urls import patterns, url
 

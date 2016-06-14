@@ -119,11 +119,11 @@ class RowLog(ReadOnlyModel):
     def retrieve_object(self):
         pass
 
-    _model = None
+    _obj_model = None
 
     @property
-    def model(self):
-        if self._model is None:
+    def obj_model(self):
+        if self._obj_model is None:
             all_models = django.apps.apps.get_models(include_auto_created=True)
 
             # find the model with corresponding db_table
@@ -136,25 +136,35 @@ class RowLog(ReadOnlyModel):
             if m is None:
                 # TODO: Handle this case
                 raise NonManagedTable("Irreversible: The table is not managed by any installed app")
-            self._model = m
+            add_audit_id(m)
+            self._obj_model = m
 
-        return self._model
+        return self._obj_model
 
     @property
     def field_mapping(self):
-        model = self.model
+        model = self.obj_model
         # TODO: Test mapping under various circumstances (ex. custom db_column, foreign_key, etc.)
         return dict([(getattr(f, 'column', None) or getattr(f, 'attname', None) or f.name, getattr(f, 'attname', None) or f.name) for f in model._meta.get_fields()])
 
     @property
     def obj(self):
-        model = self.model
+        model = self.obj_model
         add_audit_id(model)
         try:
             obj = model.objects.get(audit_id=self.audit_id)
             return obj
         except model.DoesNotExist:
             pass
+
+    def obj_update(self, obj):
+        mapping = self.field_mapping
+        changes = self.changes
+        if isinstance(changes, dict):
+            for col, value in changes.items():
+                if col in mapping:
+                    setattr(obj, mapping.get(col), value)
+            obj.save()
 
     def revert(self):
 
@@ -168,30 +178,29 @@ class RowLog(ReadOnlyModel):
         elif event.op_id == 2:  # UPDATE
             obj = self.obj
             if obj is not None:
-                mapping = self.field_mapping
-                changes = self.changes
-                if isinstance(changes, dict):
-                    for col, value in changes.items():
-                        if col in mapping:
-                            setattr(obj, mapping.get(col), value)
-                    obj.save()
+                self.obj_update(obj)
         elif event.op_id == 3:  # DELETE
-            # TODO: BUG - does not preserve `audit_id`
             mapping = self.field_mapping
             changes = self.changes
-            kwargs = {}
-            for col, value in changes.items():
-                if col in mapping:
-                    kwargs[mapping[col]] = value
-            obj = self.model(**kwargs)
-            obj.save()
+            model = self.obj_model
+
+            obj = self.obj
+            if obj is not None:
+                self.obj_update(obj)
+            else:
+                kwargs = {}
+                for col, value in changes.items():
+                    if col in mapping:
+                        kwargs[mapping[col]] = value
+                obj = model(**kwargs)
+                obj.save()
 
 
 def add_audit_id(sender, **kwargs):
     try:
         sender._meta.get_field('audit_id')
     except FieldDoesNotExist:
-        field = models.BigIntegerField(null=True, editable=False)
+        field = models.BigIntegerField(null=True, blank=True)
         field.contribute_to_class(sender, 'audit_id')
 
 # from django.db.models.signals import class_prepared
