@@ -3,6 +3,7 @@ from functools import update_wrapper
 from django.core.checks import messages
 from django.core import urlresolvers
 from django.core.exceptions import PermissionDenied
+from django.core.urlresolvers import reverse, NoReverseMatch
 from django.shortcuts import render
 from django.db.models import Q
 from django.utils.translation import ugettext_lazy as _
@@ -200,11 +201,18 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
     def real_id(self, obj):
         # TODO: this should be a link to object changeview in admin
         try:
-            obj_id = obj.audit_id
-            # return User.objects.get(audit_id=obj_id).id
-            return User.objects.raw("SELECT * from auth_user WHERE audit_id={}".format(obj_id))[0]
-        except Exception:
+            logged_obj = obj.obj
+            if logged_obj:
+                try:
+                    url = reverse('admin:%s_%s_change' % (logged_obj._meta.app_label, logged_obj._meta.model_name), args=(logged_obj.id,))
+                    return "<a href=\"%s\">%s</a>" % (url, str(logged_obj))
+                except NoReverseMatch:
+                    pass
+
+                return str(logged_obj)
+        except NonManagedTable:
             pass
+    real_id.allow_tags = True
 
 
     change_list_template = 'change_list.html'
