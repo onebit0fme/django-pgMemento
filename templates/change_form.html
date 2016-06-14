@@ -5,6 +5,7 @@
 <li>
     {% url opts|admin_urlname:'manage' original.pk|admin_urlquote as manage_url %}
     <a href="{% add_preserved_filters manage_url %}" class="historylink">{% trans "Manage" %}</a>
+    <a href="{% url "admin:pg_memento_rowlog_changelist" %}?model={{ model_name }}&object_id={{ original.pk }}" class="historylink">{% trans "Event Log" %}</a>
 </li>
 {{ block.super }}
 {% endblock %}

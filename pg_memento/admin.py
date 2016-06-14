@@ -1,21 +1,33 @@
-from django.contrib import admin
-from .models import AuditColumnLog, AuditTableLog, TransactionLog, TableEventLog, RowLog
-from django.contrib.auth.models import User
 from functools import update_wrapper
+
+from django.core.checks import messages
+from django.core import urlresolvers
+from django.contrib.auth.models import User
 from django.contrib.admin import ModelAdmin, TabularInline
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
 from django.db.models import Q
-from pg_memento.models import add_audit_id
 from django.utils.translation import ugettext_lazy as _
+from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
+
+from .models import AuditColumnLog, AuditTableLog, TransactionLog, TableEventLog, RowLog, NonManagedTable, add_audit_id
 
 
 class NoAdditionsMixin(object):
 
     def has_add_permission(self, request):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_actions(self, request):
+        actions = super(NoAdditionsMixin, self).get_actions(request)
+        del actions['delete_selected']
+        return actions
+
 
 @admin.register(AuditTableLog)
 class AuditTalbeLogAdmin(admin.ModelAdmin):
@@ -78,16 +90,10 @@ class ObjectRowLogFilter(ListFilter):
             if param in params:
                 self.used_parameters[param] = params.pop(param)
         self.obj = self.select_object()
-        print(self.obj)
-        if self.obj is not None:
-            # set to be accessible in template
 
-            model_admin._filter_subject = self.obj
-            # ^ don't really like this approach, but I'll keep it for now, as private
-        # lookup_choices = self.lookups(request, model_admin)
-        # if lookup_choices is None:
-        #     lookup_choices = ()
-        # self.lookup_choices = list(lookup_choices)
+        # set to be accessible in template
+        model_admin._filter_subject = self.obj
+        # ^ don't really like this approach, but I'll keep it for now, as private
 
     def select_object(self):
         model_name = self.used_parameters.get(self.model_parameter)
@@ -125,7 +131,7 @@ class ObjectRowLogFilter(ListFilter):
         return self.obj is not None
 
     def is_selected(self, param):
-        return self.used_parameters[param] == 'yes'
+        return self.used_parameters.get(param, 'yes') == 'yes'
 
     def negate(self, param_value):
         return 'no' if param_value == 'yes' else 'yes'
@@ -140,7 +146,7 @@ class ObjectRowLogFilter(ListFilter):
             yield {
                 'selected': self.is_selected(param),
                 'query_string': cl.get_query_string({
-                    param: self.negate(self.used_parameters[param]),
+                    param: self.negate(self.used_parameters.get(param, 'yes')),
                 }, []),
                 'display': name,
             }
@@ -166,7 +172,7 @@ class ObjectRowLogFilter(ListFilter):
                                             audit_id=obj.audit_id)
 
         # m2m audit
-        if self.used_parameters[self.include_m2m_parameter] == 'yes':
+        if self.used_parameters.get(self.include_m2m_parameter, 'yes') == 'yes':
             for m2m_field in model._meta.many_to_many:
                 assumed_column_name = m2m_field.remote_field.related_query_name + '_id'
                 through_model = getattr(model, m2m_field.name).through
@@ -195,7 +201,7 @@ class ObjectRowLogFilter(ListFilter):
 @admin.register(RowLog)
 class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
 
-    list_display = ('__str__', 'get_table_operation', 'get_table_name', 'changes', 'real_id')
+    list_display = ('pk', 'get_table_operation', 'get_table_name', 'changes', 'real_id', 'audit_id')
     list_filter = (ObjectRowLogFilter, 'event__table_operation', 'event__table_relid__table_name', )
 
     def get_table_operation(self, obj):
@@ -228,6 +234,15 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
 
         return ObjectChangeList
 
+    def get_subject_context(self):
+        if getattr(self, '_filter_subject', None):
+            obj = self._filter_subject
+            model = type(self._filter_subject)
+            obj_url = urlresolvers.reverse("admin:%s_%s_change" % (model._meta.app_label, model._meta.model_name.lower()),
+                                           args=(obj.pk,))
+
+            return dict(obj=obj, obj_model=model.__name__, obj_url=obj_url)
+
     def changelist_view(self, request, extra_context=None):
         extra = {}
         model=request.GET.get('_obj_model')
@@ -236,11 +251,28 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
 
         response = super(RowLogAdmin, self).changelist_view(request, extra_context=extra)
 
-        if hasattr(self, '_filter_subject'):
-            response.context_data['obj'] = self._filter_subject
-            response.context_data['obj_model'] = type(self._filter_subject).__name__
+        if hasattr(response, 'context_data'):
+            extra = self.get_subject_context()
+            response.context_data.update(extra or {})
 
         return response
+
+    actions = ['undo_changes']
+
+    def undo_changes(self, request, queryset):
+        irrevertable = []
+        for row_log in queryset.order_by('-id'):
+            try:
+                row_log.revert()
+            except NonManagedTable:
+                irrevertable.append(row_log)
+        if len(queryset) > len(irrevertable):
+            rev_message = "%d row(s) were successfully reverted." % (len(queryset) - len(irrevertable),)
+            self.message_user(request, rev_message)
+        if irrevertable:
+            irrev_message = "%d row(s) are irreversible through the admin. IDs are: %s" % (len(irrevertable), ", ".join([str(x.pk) for x in irrevertable]))
+            self.message_user(request, irrev_message, level=messages.ERROR)
+    undo_changes.short_description = "Revert selected changes"
 
 
 class VersionModelAdmin(ModelAdmin):
@@ -266,6 +298,19 @@ class VersionModelAdmin(ModelAdmin):
         super_urls = super(VersionModelAdmin, self).get_urls()
 
         return urls + super_urls
+
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        if extra_context is None:
+            extra_context = {}
+        extra_context['model_name'] = self.model._meta.model_name
+        extra_context['app_label'] = self.model._meta.app_label
+
+        try:
+            return super(VersionModelAdmin, self).change_view(request, object_id, form_url, extra_context=extra_context)
+        except Exception:
+            from django.db import connections
+            print(connections.query())
+            raise
 
     def manage_view(self, request, id, form_url='', extra_context=None):
         opts = self.model._meta

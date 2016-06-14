@@ -1,4 +1,6 @@
 from django.db import models
+import django.apps
+from django.core.exceptions import FieldDoesNotExist
 from django.contrib.postgres.fields import FloatRangeField, JSONField
 
 
@@ -95,6 +97,10 @@ class TableEventLog(ReadOnlyModel):
         return str(self.id)
 
 
+class NonManagedTable(Exception):
+    pass
+
+
 class RowLog(ReadOnlyModel):
 
     id = models.BigIntegerField(primary_key=True)
@@ -110,11 +116,83 @@ class RowLog(ReadOnlyModel):
     def __str__(self):
         return str(self.id)
 
+    def retrieve_object(self):
+        pass
+
+    _model = None
+
+    @property
+    def model(self):
+        if self._model is None:
+            all_models = django.apps.apps.get_models(include_auto_created=True)
+
+            # find the model with corresponding db_table
+            db_table = self.event.table_relid.table_name
+            m = None
+            for model in all_models:
+                if model._meta.db_table == db_table:
+                    m = model
+                    break
+            if m is None:
+                # TODO: Handle this case
+                raise NonManagedTable("Irreversible: The table is not managed by any installed app")
+            self._model = m
+
+        return self._model
+
+    @property
+    def field_mapping(self):
+        model = self.model
+        # TODO: Test mapping under various circumstances (ex. custom db_column, foreign_key, etc.)
+        return dict([(getattr(f, 'column', None) or getattr(f, 'attname', None) or f.name, getattr(f, 'attname', None) or f.name) for f in model._meta.get_fields()])
+
+    @property
+    def obj(self):
+        model = self.model
+        add_audit_id(model)
+        try:
+            obj = model.objects.get(audit_id=self.audit_id)
+            return obj
+        except model.DoesNotExist:
+            pass
+
+    def revert(self):
+
+        # handle restoring
+        event = self.event
+        if event.op_id == 1:  # INSERT
+            obj = self.obj
+            if obj is not None:
+                # obj.delete()
+                pass
+        elif event.op_id == 2:  # UPDATE
+            obj = self.obj
+            if obj is not None:
+                mapping = self.field_mapping
+                changes = self.changes
+                if isinstance(changes, dict):
+                    for col, value in changes.items():
+                        if col in mapping:
+                            setattr(obj, mapping.get(col), value)
+                    obj.save()
+        elif event.op_id == 3:  # DELETE
+            # TODO: BUG - does not preserve `audit_id`
+            mapping = self.field_mapping
+            changes = self.changes
+            kwargs = {}
+            for col, value in changes.items():
+                if col in mapping:
+                    kwargs[mapping[col]] = value
+            obj = self.model(**kwargs)
+            obj.save()
+
 
 def add_audit_id(sender, **kwargs):
-    # if sender.__name__ == 'User':
-    field = models.BigIntegerField(null=True, editable=False)
-    field.contribute_to_class(sender, 'audit_id')
+    try:
+        sender._meta.get_field('audit_id')
+    except FieldDoesNotExist:
+        field = models.BigIntegerField(null=True, editable=False)
+        field.contribute_to_class(sender, 'audit_id')
 
 # from django.db.models.signals import class_prepared
 #

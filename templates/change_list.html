@@ -48,7 +48,7 @@
 
 {% block content %}
     {% if obj %}
-        Showing changes that are related to "{{ obj }}" ({{ obj_model }})
+        Listing changes that are related to {{ obj_model }}: <a href="{{ obj_url }}">{{ obj }}</a>
     {% endif %}
   <div id="content-main">
     {% block object-tools %}
