@@ -173,8 +173,7 @@ class RowLog(ReadOnlyModel):
         if event.op_id == 1:  # INSERT
             obj = self.obj
             if obj is not None:
-                # obj.delete()
-                pass
+                obj.delete()
         elif event.op_id == 2:  # UPDATE
             obj = self.obj
             if obj is not None:
@@ -202,7 +201,3 @@ def add_audit_id(sender, **kwargs):
     except FieldDoesNotExist:
         field = models.BigIntegerField(null=True, blank=True)
         field.contribute_to_class(sender, 'audit_id')
-
-# from django.db.models.signals import class_prepared
-#
-# class_prepared.connect(add_audit_id)

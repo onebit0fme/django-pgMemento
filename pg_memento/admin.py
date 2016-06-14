@@ -2,14 +2,15 @@ from functools import update_wrapper
 
 from django.core.checks import messages
 from django.core import urlresolvers
-from django.contrib.auth.models import User
-from django.contrib.admin import ModelAdmin, TabularInline
-from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
 from django.db.models import Q
 from django.utils.translation import ugettext_lazy as _
+from django.contrib.auth.models import User
 from django.contrib import admin
+from django.contrib.admin import ModelAdmin, TabularInline
+from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
+from django.contrib.admin import ListFilter
 from django.contrib.contenttypes.models import ContentType
 
 from .models import AuditColumnLog, AuditTableLog, TransactionLog, TableEventLog, RowLog, NonManagedTable, add_audit_id
@@ -62,11 +63,8 @@ class TableEventLogAdmin(admin.ModelAdmin):
 
     inlines = [RowLogInline]
 
-from django.contrib.admin import ListFilter
 
 class ObjectRowLogFilter(ListFilter):
-    # title = 'object changes' # or use _('country') for translated title
-    # parameter_name = '_object'
 
     # TODO: custom template?
     template = 'filter_input.html'
@@ -116,18 +114,12 @@ class ObjectRowLogFilter(ListFilter):
             return 'Object not selected'
         return "Object: %s" % str(self.obj)
 
-    def lookups(self, request, model_admin):
-        # countries = set([c.country for c in model_admin.model.objects.all()])
-        # return [(c.id, c.name) for c in countries]
-        return [('123', 'User-1')]
-
     def queryset(self, request, queryset):
         if self.obj is not None:
             return self.get_row_logs(queryset, self.obj)
         return queryset
 
     def has_output(self):
-        # return len(self.used_parameters) == 3
         return self.obj is not None
 
     def is_selected(self, param):
@@ -159,17 +151,15 @@ class ObjectRowLogFilter(ListFilter):
             add_audit_id(model)
 
     def get_row_logs(self, queryset, obj):
+        # TODO: not DRY
         model = type(obj)
         db_table = model._meta.db_table
-        print(db_table)
-        # audit_id = self.model.objects.raw('select audit_id from %s WHERE id=%s', (db_table,obj.id))
-        # print(audit_id)
 
         # Self audit
         self.contribute_audit_id(model)
         obj.refresh_from_db()
         row_log_set = queryset.filter(event__table_relid__table_name=db_table,
-                                            audit_id=obj.audit_id)
+                                      audit_id=obj.audit_id)
 
         # m2m audit
         if self.used_parameters.get(self.include_m2m_parameter, 'yes') == 'yes':
@@ -183,10 +173,6 @@ class ObjectRowLogFilter(ListFilter):
                 row_log_set |= RowLog.objects.filter(Q(audit_id__in=audit_ids) |  # existing relations
                                                      Q(**{'changes__'+assumed_column_name: obj.pk}),  # deleted relations
                                                      event__table_relid__table_name=through_model._meta.db_table)
-
-                # deleted relations
-                # row_log_set |= RowLog.objects.filter(event__table_relid__table_name=through_model._meta.db_table,
-                #                                      **{'changes__'+assumed_column_name: obj.pk})
 
                 # inserts that are now deleted
                 row_log_set |= RowLog.objects.filter(event__table_relid__table_name=through_model._meta.db_table,
@@ -319,28 +305,23 @@ class VersionModelAdmin(ModelAdmin):
 
     def manage_view(self, request, id, form_url='', extra_context=None):
         opts = self.model._meta
-        # form = TestModelForm()
         self.contribute_audit_id(self.model)
         obj = self.model.objects.get(pk=id)
 
         if not self.has_change_permission(request, obj):
             raise PermissionDenied
 
-        # do cool management stuff here
-
         preserved_filters = self.get_preserved_filters(request)
         form_url = add_preserved_filters({'preserved_filters': preserved_filters, 'opts': opts}, form_url)
 
         # Get changes
         history = self.get_row_logs(obj=obj)
-        ###
 
         context = {
             'title': 'Manage %s' % obj,
             'has_change_permission': self.has_change_permission(request, obj),
             'form_url': form_url,
             'opts': opts,
-            # 'errors': form.errors,
             'history': history,
             'app_label': opts.app_label,
             'original': obj,
@@ -356,8 +337,6 @@ class VersionModelAdmin(ModelAdmin):
     def get_row_logs(self, obj):
         db_table = self.model._meta.db_table
         print(db_table)
-        # audit_id = self.model.objects.raw('select audit_id from %s WHERE id=%s', (db_table,obj.id))
-        # print(audit_id)
 
         # Self audit
         row_log_set = RowLog.objects.filter(event__table_relid__table_name=db_table,
@@ -375,17 +354,11 @@ class VersionModelAdmin(ModelAdmin):
                                                  Q(**{'changes__'+assumed_column_name: obj.pk}),  # deleted relations
                                                  event__table_relid__table_name=through_model._meta.db_table)
 
-            # deleted relations
-            # row_log_set |= RowLog.objects.filter(event__table_relid__table_name=through_model._meta.db_table,
-            #                                      **{'changes__'+assumed_column_name: obj.pk})
-
             # inserts that are now deleted
             row_log_set |= RowLog.objects.filter(event__table_relid__table_name=through_model._meta.db_table,
                                                  audit_id__in=row_log_set.values_list('audit_id', flat=True))
         row_log_set = row_log_set.select_related('event').order_by('-audit_id')
         m2m_tables = [x.related_model._meta.db_table for x in self.model._meta.many_to_many]
         m2m_tables.append(db_table)
-        print m2m_tables
 
-        print(row_log_set)
         return row_log_set
