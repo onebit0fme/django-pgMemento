@@ -31,13 +31,13 @@ class NoAdditionsMixin(object):
 
 
 @admin.register(AuditTableLog)
-class AuditTalbeLogAdmin(admin.ModelAdmin):
+class AuditTalbeLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
 
     list_display = ('__str__', 'table_name')
 
 
 @admin.register(AuditColumnLog)
-class AuditColumnLogAdmin(admin.ModelAdmin):
+class AuditColumnLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
     pass
 
 
@@ -45,13 +45,12 @@ class EventLogInline(TabularInline):
     model = TableEventLog
     extra = 0
 
-    # def get_field_queryset(self, db, db_field, request):
-
 
 @admin.register(TransactionLog)
-class TransactionLogAdmin(admin.ModelAdmin):
+class TransactionLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
     inlines = [EventLogInline]
     readonly_fields = ('txid', 'stmt_date', 'user_name', 'client_name')
+
 
 class RowLogInline(TabularInline):
     model = RowLog
@@ -59,7 +58,7 @@ class RowLogInline(TabularInline):
 
 
 @admin.register(TableEventLog)
-class TableEventLogAdmin(admin.ModelAdmin):
+class TableEventLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
 
     inlines = [RowLogInline]
 
