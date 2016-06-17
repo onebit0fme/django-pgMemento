@@ -116,14 +116,11 @@ class RowLog(ReadOnlyModel):
     def __str__(self):
         return str(self.id)
 
-    def retrieve_object(self):
-        pass
-
-    _obj_model = None
+    _subject_model = None
 
     @property
-    def obj_model(self):
-        if self._obj_model is None:
+    def subject_model(self):
+        if self._subject_model is None:
             all_models = django.apps.apps.get_models(include_auto_created=True)
 
             # find the model with corresponding db_table
@@ -137,19 +134,19 @@ class RowLog(ReadOnlyModel):
                 # TODO: Handle this case
                 raise NonManagedTable("Irreversible: The table is not managed by any installed app")
             add_audit_id(m)
-            self._obj_model = m
+            self._subject_model = m
 
-        return self._obj_model
+        return self._subject_model
 
     @property
     def field_mapping(self):
-        model = self.obj_model
+        model = self.subject_model
         # TODO: Test mapping under various circumstances (ex. custom db_column, foreign_key, etc.)
         return dict([(getattr(f, 'column', None) or getattr(f, 'attname', None) or f.name, getattr(f, 'attname', None) or f.name) for f in model._meta.get_fields()])
 
     @property
-    def obj(self):
-        model = self.obj_model
+    def subject(self):
+        model = self.subject_model
         add_audit_id(model)
         try:
             obj = model.objects.get(audit_id=self.audit_id)
@@ -157,7 +154,7 @@ class RowLog(ReadOnlyModel):
         except model.DoesNotExist:
             pass
 
-    def obj_update(self, obj):
+    def subject_update(self, obj):
         mapping = self.field_mapping
         changes = self.changes
         if isinstance(changes, dict):
@@ -171,28 +168,28 @@ class RowLog(ReadOnlyModel):
         # handle restoring
         event = self.event
         if event.op_id == 1:  # INSERT
-            obj = self.obj
-            if obj is not None:
-                obj.delete()
+            subject = self.subject
+            if subject is not None:
+                subject.delete()
         elif event.op_id == 2:  # UPDATE
-            obj = self.obj
-            if obj is not None:
-                self.obj_update(obj)
+            subject = self.subject
+            if subject is not None:
+                self.subject_update(subject)
         elif event.op_id == 3:  # DELETE
             mapping = self.field_mapping
             changes = self.changes
-            model = self.obj_model
+            model = self.subject_model
 
-            obj = self.obj
-            if obj is not None:
-                self.obj_update(obj)
+            subject = self.subject
+            if subject is not None:
+                self.subject_update(subject)
             else:
                 kwargs = {}
                 for col, value in changes.items():
                     if col in mapping:
                         kwargs[mapping[col]] = value
-                obj = model(**kwargs)
-                obj.save()
+                subject = model(**kwargs)
+                subject.save()
 
 
 def add_audit_id(sender, **kwargs):

@@ -4,10 +4,9 @@ from django.core.checks import messages
 from django.core import urlresolvers
 from django.core.exceptions import PermissionDenied
 from django.core.urlresolvers import reverse, NoReverseMatch
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.db.models import Q
 from django.utils.translation import ugettext_lazy as _
-from django.contrib.auth.models import User
 from django.contrib import admin
 from django.contrib.admin import ModelAdmin, TabularInline
 from django.contrib.admin.templatetags.admin_urls import add_preserved_filters
@@ -72,9 +71,10 @@ class ObjectRowLogFilter(ListFilter):
 
     model_parameter = 'model'
     object_id_parameter = 'object_id'
+    object_audit_id_parameter = 'object_audit_id'
     include_m2m_parameter = 'include_m2m'
 
-    accepted_params = [model_parameter, object_id_parameter, include_m2m_parameter]
+    accepted_params = [model_parameter, object_id_parameter, object_audit_id_parameter, include_m2m_parameter]
     toggle_params = [include_m2m_parameter]
 
     choices_display = (
@@ -85,7 +85,7 @@ class ObjectRowLogFilter(ListFilter):
         self.obj = None
         super(ObjectRowLogFilter, self).__init__(
             request, params, model, model_admin)
-        for param in [self.model_parameter, self.object_id_parameter, self.include_m2m_parameter]:
+        for param in self.accepted_params:
             if param in params:
                 self.used_parameters[param] = params.pop(param)
         self.obj = self.select_object()
@@ -97,12 +97,15 @@ class ObjectRowLogFilter(ListFilter):
     def select_object(self):
         model_name = self.used_parameters.get(self.model_parameter)
         object_id = self.used_parameters.get(self.object_id_parameter)
-        if model_name and object_id:
+        object_audit_id = self.used_parameters.get(self.object_audit_id_parameter)
+        if model_name and (object_id or object_audit_id):
             try:
                 ct = ContentType.objects.get(model=model_name.lower())
                 model = ct.model_class()
+                add_audit_id(model)
                 try:
-                    obj = model.objects.get(pk=object_id)
+                    kwargs = {'pk': object_id} if object_id else {'audit_id': object_audit_id}
+                    obj = model.objects.get(**kwargs)
                     return obj
                 except model.DoesNotExist:
                     pass
@@ -165,7 +168,8 @@ class ObjectRowLogFilter(ListFilter):
         # m2m audit
         if self.used_parameters.get(self.include_m2m_parameter, 'yes') == 'yes':
             for m2m_field in model._meta.many_to_many:
-                assumed_column_name = m2m_field.remote_field.related_query_name + '_id'
+                # TODO: `assumed_column_name` this might require refactoring
+                assumed_column_name = m2m_field.remote_field.related_query_name or m2m_field.remote_field.name + '_id'
                 through_model = getattr(model, m2m_field.name).through
                 self.contribute_audit_id(through_model)
 
@@ -188,68 +192,38 @@ class ObjectRowLogFilter(ListFilter):
 @admin.register(RowLog)
 class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
 
-    list_display = ('pk', 'get_table_operation', 'get_table_name', 'changes', 'real_id', 'audit_id')
+    list_display = ('pk', 'get_table_operation', 'get_table_name', 'changes', 'get_audit_id_url', 'get_select')
     list_filter = (ObjectRowLogFilter, 'event__table_operation', 'event__table_relid__table_name', )
 
+    # Additional fields
+    
     def get_table_operation(self, obj):
         return obj.event.table_operation
     get_table_operation.short_description = 'Operation'
 
     def get_table_name(self, obj):
         return obj.event.table_relid.table_name
+    get_table_name.short_description = "Table"
 
-    def real_id(self, obj):
-        # TODO: this should be a link to object changeview in admin
+    def get_audit_id_url(self, obj):
+        info = self.model._meta.app_label, self.model._meta.model_name
+        url = reverse('admin:%s_%s_subject_redirect' % info, args=(obj.pk,))
+        return "<a href=\"%s\">%s</a>" % (url, str(obj.audit_id))
+    get_audit_id_url.allow_tags = True
+    get_audit_id_url.short_description = "Audit Id"
+
+    def get_select(self, obj):
+        # TODO: If the view try to get slow, make it so this view is handled through redirect
         try:
-            logged_obj = obj.obj
-            if logged_obj:
-                try:
-                    url = reverse('admin:%s_%s_change' % (logged_obj._meta.app_label, logged_obj._meta.model_name), args=(logged_obj.id,))
-                    return "<a href=\"%s\">%s</a>" % (url, str(logged_obj))
-                except NoReverseMatch:
-                    pass
-
-                return str(logged_obj)
+            model_name = obj.subject_model._meta.model_name
+            row_log_url = reverse('admin:%s_%s_changelist' % (self.model._meta.app_label, self.model._meta.model_name))
+            return "<a href=\"%s?model=%s&object_audit_id=%s\">Select</a>" % (row_log_url, model_name, str(obj.audit_id))
         except NonManagedTable:
-            pass
-    real_id.allow_tags = True
-
-
-    change_list_template = 'change_list.html'
-
-    def get_changelist(self, request, **kwargs):
-        from django.contrib.admin.views.main import ChangeList
-
-        class ObjectChangeList(ChangeList):
-
-            def get_queryset(self, request):
-                # filter down to object-related RowLogs
-                return super(ObjectChangeList, self).get_queryset(request)
-
-        return ObjectChangeList
-
-    def get_subject_context(self):
-        if getattr(self, '_filter_subject', None):
-            obj = self._filter_subject
-            model = type(self._filter_subject)
-            obj_url = urlresolvers.reverse("admin:%s_%s_change" % (model._meta.app_label, model._meta.model_name.lower()),
-                                           args=(obj.pk,))
-
-            return dict(obj=obj, obj_model=model.__name__, obj_url=obj_url)
-
-    def changelist_view(self, request, extra_context=None):
-        extra = {}
-        model=request.GET.get('_obj_model')
-        obj_id = request.GET.get('_obj_id')
-        print(model, obj_id)
-
-        response = super(RowLogAdmin, self).changelist_view(request, extra_context=extra)
-
-        if hasattr(response, 'context_data'):
-            extra = self.get_subject_context()
-            response.context_data.update(extra or {})
-
-        return response
+            return "-"
+    get_select.allow_tags = True
+    get_select.short_description = "Select"
+    
+    # Actions
 
     actions = ['undo_changes']
 
@@ -267,6 +241,86 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
             irrev_message = "%d row(s) are irreversible through the admin. IDs are: %s" % (len(irrevertable), ", ".join([str(x.pk) for x in irrevertable]))
             self.message_user(request, irrev_message, level=messages.ERROR)
     undo_changes.short_description = "Revert selected changes"
+    
+    # Other
+
+    def get_urls(self):
+        """ Additional views """
+        from django.conf.urls import patterns, url
+
+        def wrap(view):
+            def wrapper(*args, **kwargs):
+                return self.admin_site.admin_view(view)(*args, **kwargs)
+            return update_wrapper(wrapper, view)
+
+        info = self.model._meta.app_label, self.model._meta.model_name
+
+        urls = patterns('',
+                        url(r'^(.+)/subject_view/$',
+                            wrap(self.subject_view),
+                            name='%s_%s_subject_redirect' % info),
+                        )
+
+        super_urls = super(RowLogAdmin, self).get_urls()
+
+        return urls + super_urls
+
+    def subject_view(self, request, object_id, form_url='', extra_context=None):
+        """ The view redirects to the object admin change view if such exist """
+        try:
+            # try to get object link if it exists and has admin page
+            obj = self.model.objects.get(pk=object_id)
+            logged_subject = obj.subject
+            if logged_subject:
+                return redirect(reverse('admin:%s_%s_change' % (logged_subject._meta.app_label, 
+                                                                logged_subject._meta.model_name), 
+                                        args=(logged_subject.id,)))
+        except (NonManagedTable, NoReverseMatch, self.model.DoesNotExist):
+            pass
+        
+        # otherwise redirect back to the RowLog changelist
+        referer = request.META.get('HTTP_REFERER')
+        if referer:
+            return redirect(referer)
+        info = self.model._meta.app_label, self.model._meta.model_name
+        return redirect(reverse('admin:%s_%s_changelist' % info))
+
+    change_list_template = 'change_list.html'
+
+    def get_changelist(self, request, **kwargs):
+        from django.contrib.admin.views.main import ChangeList
+
+        class ObjectChangeList(ChangeList):
+
+            def get_queryset(self, request):
+                # filter down to object-related RowLogs
+                return super(ObjectChangeList, self).get_queryset(request)
+
+        return ObjectChangeList
+
+    def changelist_view(self, request, extra_context=None):
+        extra = {}
+        response = super(RowLogAdmin, self).changelist_view(request, extra_context=extra)
+
+        if hasattr(response, 'context_data'):
+            try:
+                extra = self.get_subject_context()
+                response.context_data.update(extra or {})
+            except NoReverseMatch:
+                pass
+
+        return response
+    
+    # Helpers
+
+    def get_subject_context(self):
+        if getattr(self, '_filter_subject', None):
+            obj = self._filter_subject
+            model = type(self._filter_subject)
+            obj_url = urlresolvers.reverse("admin:%s_%s_change" % (model._meta.app_label, model._meta.model_name.lower()),
+                                           args=(obj.pk,))
+
+            return dict(obj=obj, obj_model=model.__name__, obj_url=obj_url)
 
 
 class VersionModelAdmin(ModelAdmin):
