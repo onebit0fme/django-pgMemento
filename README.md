@@ -32,14 +32,14 @@ At the moment this package takes advantage of the DML logging part of pgMemento.
         pg_memento
     ]
     
-    PG_MEMENTO_IGNORE_TALBES = ['django_admin_log']  # optional
+    PG_MEMENTO_IGNORE_TABLES = ['django_admin_log']  # optional
     ```
 
 2. Initialize the logging by running the following management command:
 
     `python manage.py initlogging`
     
-    The command will start logging on all tables in scema "public" (except those that are specified by PG_MEMENTO_IGNORE_TALBES)
+    The command will start logging on all tables in scema "public" (except those that are specified by PG_MEMENTO_IGNORE_TABLES)
     
     At this point all changes will be logged.
 
