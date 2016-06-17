@@ -196,7 +196,7 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
     list_filter = (ObjectRowLogFilter, 'event__table_operation', 'event__table_relid__table_name', )
 
     # Additional fields
-    
+
     def get_table_operation(self, obj):
         return obj.event.table_operation
     get_table_operation.short_description = 'Operation'
@@ -217,12 +217,16 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
         try:
             model_name = obj.subject_model._meta.model_name
             row_log_url = reverse('admin:%s_%s_changelist' % (self.model._meta.app_label, self.model._meta.model_name))
-            return "<a href=\"%s?model=%s&object_audit_id=%s\">Select</a>" % (row_log_url, model_name, str(obj.audit_id))
+            return "<a href=\"%s?%s=%s&%s=%s\">Select</a>" % (row_log_url,
+                                                              ObjectRowLogFilter.model_parameter,
+                                                              ObjectRowLogFilter.object_audit_id_parameter,
+                                                              model_name,
+                                                              str(obj.audit_id))
         except NonManagedTable:
             return "-"
     get_select.allow_tags = True
     get_select.short_description = "Select"
-    
+
     # Actions
 
     actions = ['undo_changes']
@@ -241,7 +245,7 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
             irrev_message = "%d row(s) are irreversible through the admin. IDs are: %s" % (len(irrevertable), ", ".join([str(x.pk) for x in irrevertable]))
             self.message_user(request, irrev_message, level=messages.ERROR)
     undo_changes.short_description = "Revert selected changes"
-    
+
     # Other
 
     def get_urls(self):
@@ -272,12 +276,12 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
             obj = self.model.objects.get(pk=object_id)
             logged_subject = obj.subject
             if logged_subject:
-                return redirect(reverse('admin:%s_%s_change' % (logged_subject._meta.app_label, 
-                                                                logged_subject._meta.model_name), 
+                return redirect(reverse('admin:%s_%s_change' % (logged_subject._meta.app_label,
+                                                                logged_subject._meta.model_name),
                                         args=(logged_subject.id,)))
         except (NonManagedTable, NoReverseMatch, self.model.DoesNotExist):
             pass
-        
+
         # otherwise redirect back to the RowLog changelist
         referer = request.META.get('HTTP_REFERER')
         if referer:
@@ -310,7 +314,7 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
                 pass
 
         return response
-    
+
     # Helpers
 
     def get_subject_context(self):
