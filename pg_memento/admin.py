@@ -173,10 +173,12 @@ class ObjectRowLogFilter(ListFilter):
                 self.contribute_audit_id(through_model)
 
                 # existing relations
-                audit_ids = through_model.objects.filter(**{assumed_column_name: obj.pk}).values_list('audit_id', flat=True)
-                row_log_set |= RowLog.objects.filter(Q(audit_id__in=audit_ids) |  # existing relations
-                                                     Q(**{'changes__'+assumed_column_name: obj.pk}),  # deleted relations
-                                                     event__table_relid__table_name=through_model._meta.db_table)
+                audit_ids = through_model.objects.filter(**{assumed_column_name: obj.pk}).values_list('audit_id',
+                                                                                                      flat=True)
+                row_log_set |= RowLog.objects.filter(
+                    Q(audit_id__in=audit_ids) |  # existing relations
+                    Q(**{'changes__' + assumed_column_name: obj.pk}),  # deleted relations
+                    event__table_relid__table_name=through_model._meta.db_table)
 
                 # inserts that are now deleted
                 row_log_set |= RowLog.objects.filter(event__table_relid__table_name=through_model._meta.db_table,
@@ -241,7 +243,8 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
             rev_message = "%d row(s) were successfully reverted." % (len(queryset) - len(irrevertable),)
             self.message_user(request, rev_message)
         if irrevertable:
-            irrev_message = "%d row(s) are irreversible through the admin. IDs are: %s" % (len(irrevertable), ", ".join([str(x.pk) for x in irrevertable]))
+            irrev_message = "%d row(s) are irreversible through the admin. IDs are: %s" % (
+                len(irrevertable), ", ".join([str(x.pk) for x in irrevertable]))
             self.message_user(request, irrev_message, level=messages.ERROR)
     undo_changes.short_description = "Revert selected changes"
 
@@ -320,8 +323,9 @@ class RowLogAdmin(NoAdditionsMixin, admin.ModelAdmin):
         if getattr(self, '_filter_subject', None):
             obj = self._filter_subject
             model = type(self._filter_subject)
-            obj_url = urlresolvers.reverse("admin:%s_%s_change" % (model._meta.app_label, model._meta.model_name.lower()),
-                                           args=(obj.pk,))
+            obj_url = urlresolvers.reverse(
+                "admin:%s_%s_change" % (model._meta.app_label, model._meta.model_name.lower()),
+                args=(obj.pk,))
 
             return dict(obj=obj, obj_model=model.__name__, obj_url=obj_url)
 
@@ -416,7 +420,7 @@ class VersionModelAdmin(ModelAdmin):
             # existing relations
             audit_ids = through_model.objects.filter(**{assumed_column_name: obj.pk}).values_list('audit_id', flat=True)
             row_log_set |= RowLog.objects.filter(Q(audit_id__in=audit_ids) |  # existing relations
-                                                 Q(**{'changes__'+assumed_column_name: obj.pk}),  # deleted relations
+                                                 Q(**{'changes__' + assumed_column_name: obj.pk}),  # deleted relations
                                                  event__table_relid__table_name=through_model._meta.db_table)
 
             # inserts that are now deleted

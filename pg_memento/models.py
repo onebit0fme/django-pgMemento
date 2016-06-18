@@ -142,7 +142,9 @@ class RowLog(ReadOnlyModel):
     def field_mapping(self):
         model = self.subject_model
         # TODO: Test mapping under various circumstances (ex. custom db_column, foreign_key, etc.)
-        return dict([(getattr(f, 'column', None) or getattr(f, 'attname', None) or f.name, getattr(f, 'attname', None) or f.name) for f in model._meta.get_fields()])
+        return dict([(getattr(f, 'column', None) or
+                      getattr(f, 'attname', None) or
+                      f.name, getattr(f, 'attname', None) or f.name) for f in model._meta.get_fields()])
 
     @property
     def subject(self):
