@@ -82,8 +82,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
         'NAME': 'pg_memento_test',
-        'USER': getpass.getuser(),
-        'PASSWORD': '',
+        'USER': os.environ.get('PG_USER', getpass.getuser()),
+        'PASSWORD': os.environ.get('PG_PASSWORD', ''),
         'HOST': 'localhost',
         'PORT': '5432',
         'ATOMIC_REQUESTS': True
