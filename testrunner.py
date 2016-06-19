@@ -3,12 +3,14 @@ import os
 import sys
 import pytest
 
+import django
+from django.conf import settings
+from django.test.utils import get_runner
 
-def main():
-    # os.environ.setdefault("DJANGO_SETTINGS_MODULE", "settings")
-    # sys.path.insert(0, "test_app")
-    return pytest.main()
-
-
-if __name__ == '__main__':
-    sys.exit(main())
+if __name__ == "__main__":
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'test_app.settings'
+    django.setup()
+    TestRunner = get_runner(settings)
+    test_runner = TestRunner()
+    failures = test_runner.run_tests(["pg_memento"])
+    sys.exit(bool(failures))

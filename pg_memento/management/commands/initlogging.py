@@ -10,7 +10,7 @@ class Command(BaseCommand):
     help = 'Initialize pgMemento logging.'
 
     def handle(self, *args, **options):
-        ignore_table = getattr(settings, 'PG_MEMENTO_IGNORE_TABLES', IGNORE_TABLES)
+        ignore_tables = getattr(settings, 'PG_MEMENTO_IGNORE_TABLES', IGNORE_TABLES)
         uninit()
-        init(ignore_tables=ignore_table)
+        init(ignore_tables=ignore_tables)
         self.stdout.write(self.style.SUCCESS('Initialized!'))

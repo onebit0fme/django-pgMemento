@@ -81,12 +81,15 @@ WSGI_APPLICATION = 'test_app.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'pg_memento_test',
+        'NAME': 'pg_memento',
         'USER': os.environ.get('PG_USER', getpass.getuser()),
         'PASSWORD': os.environ.get('PG_PASSWORD', ''),
         'HOST': 'localhost',
         'PORT': os.environ.get('DB_PORT', '5432'),
-        'ATOMIC_REQUESTS': True
+        'ATOMIC_REQUESTS': True,
+        'TEST': {
+            'NAME': 'pg_memento_test',
+        },
     },
 }
 
@@ -128,3 +131,5 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/1.9/howto/static-files/
 
 STATIC_URL = '/static/'
+
+TEST_RUNNER = 'test_app.tests.CerebrumTestSuiteRunner'

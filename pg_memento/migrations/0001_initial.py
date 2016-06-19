@@ -1,16 +1,22 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 import os
+import sys
 from django.db import migrations
 from pg_memento.compat import PG_MEMENTO_PATH, read_file_content
 
 from django.conf import settings
+
+
+TESTING = os.environ.get('IS_TEST') == 'true'
 
 db_to_log = settings.DATABASES.get('default')
 # TODO: allow multiple databases
 assert db_to_log is not None, "missing 'default' database!"
 assert 'postgresql' in db_to_log.get('ENGINE'), "Only PostreSQL engine is supported!"
 db_name = db_to_log.get('NAME')
+if TESTING:
+    db_name = db_to_log.get('TEST', {}).get('NAME', db_name)
 
 SETUP = 'src/SETUP.sql'
 LOG_UTILS = 'src/LOG_UTIL.sql'
