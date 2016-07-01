@@ -15,6 +15,7 @@ setup(
     author_email='tarasics@gmail.com',
     license='LGPLv3',
     packages=find_packages(exclude=['test_app']),
+    package_data={'pg_memento': ['scripts/**/*.sql', 'scripts/*.sql']},
     include_package_data=True,
     classifiers=[
         'Development Status :: 3 - Alpha',
